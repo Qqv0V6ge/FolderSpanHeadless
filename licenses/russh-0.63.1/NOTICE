@@ -1,0 +1,9 @@
+russh 0.63.1: unmodified published crate, source archive SHA-256 35bab1b87d915817d5d9cc352637cd40d5f0b298a48c6309af9156a4addc3031.
+License text: https://raw.githubusercontent.com/warp-tech/russh/d3ae702a43a163946f258297e398dc216339d5ce/LICENSE.txt
+Source: https://crates.io/api/v1/crates/russh/0.63.1/download
+VCS hint: d3ae702a43a163946f258297e398dc216339d5ce, dirty=False.
+
+Original source copyright notices:
+// Copyright 2016 Pierre-Étienne Meunier
+
+Declared authors: Pierre-Étienne Meunier <pe@pijul.org>

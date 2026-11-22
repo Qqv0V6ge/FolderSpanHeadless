@@ -1,0 +1,2 @@
+# License override manifests record hashes of the exact upstream bytes.
+/licenses/** -text

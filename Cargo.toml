@@ -1,0 +1,77 @@
+[package]
+name = "folderspan-headless"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+license = "Apache-2.0"
+publish = false
+description = "Independent native host for the FolderSpan Web UI v1 protocol"
+
+[features]
+default = []
+pro = []
+
+[dependencies]
+aes-gcm = { version = "=0.11.1", default-features = false, features = ["aes", "alloc", "zeroize"] }
+smb2 = { version = "=0.26.0", default-features = false, features = ["tokio"] }
+scraper = { version = "0.29", default-features = false }
+prost = "0.14"
+futures-util = "0.3"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "stream"] }
+anyhow = "1"
+axum = { version = "0.8", features = ["ws"] }
+tokio = { version = "1", features = ["full"] }
+tokio-tungstenite = { version = "0.29", features = ["rustls-tls-webpki-roots"] }
+tokio-util = { version = "0.7", features = ["rt", "io"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+subtle = "2"
+rand = "0.8"
+hex = "0.4"
+dirs = "6"
+url = "2"
+cap-std = "3"
+cap-fs-ext = "3"
+mime_guess = "2"
+hyper = { version = "1", features = ["http1", "server"] }
+hyper-util = { version = "0.1", features = ["tokio", "service"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+rcgen = { version = "0.13", features = ["pem"] }
+libc = "0.2"
+rsa = { version = "0.9", features = ["sha2"] }
+base64 = "0.22"
+fs2 = "0.4"
+zeroize = { version = "1", features = ["serde"] }
+zstd = "0.13"
+if-addrs = "0.13"
+socket2 = "0.6"
+percent-encoding = "2"
+digest_auth = "0.3"
+roxmltree = "0.21"
+time = { version = "0.3", features = ["parsing"] }
+suppaftp = { version = "=12.2.1", default-features = false, features = ["tokio-rustls-ring", "no-log"] }
+encoding_rs = "0.8"
+chrono = "0.4"
+chrono-tz = "=0.10.4"
+x509-parser = { version = "0.18", default-features = false }
+russh = { version = "=0.63.1", default-features = false, features = ["ring", "rsa", "flate2"] }
+hmac = "0.12"
+ring = "=0.17.14"
+tempfile = "3"
+sha1 = "0.10"
+
+[target.'cfg(unix)'.dependencies]
+nix = { version = "0.31", default-features = false, features = ["user"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_Storage_FileSystem", "Win32_System_IO", "Win32_System_Threading", "Wdk_Storage_FileSystem", "Win32_Security_Authorization"] }
+
+[dev-dependencies]
+rand10 = { version = "0.10", package = "rand" }
+russh-sftp = "=3.0.1"
+
+[profile.release]
+lto = "thin"
+strip = true

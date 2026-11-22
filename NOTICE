@@ -1,0 +1,10 @@
+FolderSpanHeadless — standard edition
+
+Copyright 2026 FolderSpan
+
+The standard Rust host is licensed under the Apache License, Version 2.0.
+See LICENSE for the license text. Each separate Pro source repository governs
+its own licensing.
+
+Third-party components retain their original licenses. The portable archive
+lists their license files and attribution notices in third-party-licenses/index.json.

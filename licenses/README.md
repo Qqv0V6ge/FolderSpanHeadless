@@ -1,0 +1,5 @@
+MPL-2.0.txt is the unmodified Mozilla Public License 2.0 text from https://www.mozilla.org/media/MPL/2.0/index.txt . SHA-256: 3f3d9e0024b1921b067d6f7f88deb4a60cbe7a78e76c64e3f1d7fc3b779b9d04. The pinned selectors 0.41.0 package omits a standalone license file; the collector includes this text, its original source notice and source download/revision URLs.
+
+The pinned suppaftp 12.2.1, asn1-rs-impl 0.2.0 and lazy-regex-proc_macros 3.6.2 crates omit their workspace license files. Their subdirectories preserve the upstream MIT text at each exact Cargo VCS revision, source links and hashes. Collection refuses changed license identifiers, revisions or asset hashes.
+
+SSH dependency overrides include delegate 0.13.5 (MIT), russh 0.63.1, russh-cryptovec 0.62.0 and russh-util 0.52.0 (Apache-2.0). The notices pin source archives and accurately retain Cargo VCS hints, including the dirty russh-util hint. Standard Apache-2.0 is used when that hint is unavailable upstream; the published crate checksum identifies the source. Collection checks dirty flags and archive checksums as well as texts.
