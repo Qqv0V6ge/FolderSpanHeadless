@@ -3,6 +3,7 @@ mod connection;
 mod http;
 mod websocket;
 
+pub use assets::has_web_index;
 pub use connection::{Connection, serve};
 pub use http::router;
 
@@ -12,8 +13,11 @@ use crate::{
         security::SecurityPolicy,
         session::{MAX_SESSIONS, REQUEST_LIMIT, Session},
     },
-    runtime::config::{Config, Credentials},
-    storage::files::{FilePolicy, roots},
+    runtime::{
+        access::{Access, Credentials, Feature},
+        config::Config,
+    },
+    storage::files::FilePolicy,
 };
 use anyhow::{Result, ensure};
 use serde_json::json;
@@ -40,14 +44,7 @@ impl App {
             .into_iter()
             .map(|i| i.ip().to_string())
             .collect::<Vec<_>>();
-        let trusted = std::env::var("FOLDERSPAN_WEB_UI_ALLOWED_ORIGINS")
-            .unwrap_or_else(|_| "*".into())
-            .split(',')
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .map(str::to_owned)
-            .collect::<Vec<_>>();
-        let policy = SecurityPolicy::new(hosts, trusted)?;
+        let policy = config.settings.policy(hosts)?;
         config.data_dir = crate::runtime::config::canonical_path(&config.data_dir)?;
         let desktop = crate::runtime::instance_lock::desktop_data_dir()?;
         let desktop = crate::runtime::config::canonical_path(&desktop).unwrap_or(desktop);
@@ -65,11 +62,11 @@ impl App {
             sessions: Mutex::new(HashMap::new()),
         }))
     }
-    fn create_session(&self) -> Result<Arc<Session>> {
+    fn create_session(&self, access: Access) -> Result<Arc<Session>> {
         self.reap();
         let mut sessions = self.sessions.lock().unwrap();
         ensure!(sessions.len() < MAX_SESSIONS, "session capacity reached");
-        let session = Session::new(&self.config.data_dir)?;
+        let session = Session::with_access(&self.config.data_dir, access)?;
         session.own(session.cache.clone())?;
         sessions.insert(session.token.clone(), session.clone());
         Ok(session)
@@ -128,6 +125,25 @@ impl App {
         session: Arc<Session>,
         allows_credentials: bool,
     ) -> Reply {
+        let group = path
+            .strip_prefix("/api/web-ui/platform/")
+            .unwrap_or_default()
+            .split(['/', '?'])
+            .next()
+            .unwrap_or_default();
+        let required = match group {
+            "http" => Some(Feature::OutboundHttp),
+            "networks" | "storage" => Some(Feature::Storage),
+            "devices" => Some(Feature::Devices),
+            "files" | "listeners" | "compression" | "resources" => None,
+            _ if session.access.directories().is_some() => {
+                return Reply::error(403, "permission_denied", "operation is not authorized");
+            }
+            _ => None,
+        };
+        if required.is_some_and(|feature| !session.access.allows(feature)) {
+            return Reply::error(403, "permission_denied", "feature is not authorized");
+        }
         let Ok(permit) = session.operations.clone().try_acquire_owned() else {
             return Reply::error(429, "capacity", "management request capacity reached");
         };
@@ -237,9 +253,27 @@ impl App {
         .unwrap_or_else(Reply::from_error)
     }
     fn host_info(&self, s: &Session) -> serde_json::Value {
-        let mut sensitive_paths: Vec<_> = self.files.private.iter().map(|p| {
-            json!({"path":p,"sensitivity":"critical","category":"application_private_data","descendants":true})
-        }).collect();
+        let scoped = s.access.directories().is_some();
+        let roots = self.files.roots_for(s);
+        let (home, app) = if scoped {
+            let home = roots[0]["path"]
+                .as_str()
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(|| s.cache.clone());
+            (home.clone(), home)
+        } else {
+            (
+                dirs::home_dir().unwrap_or_default(),
+                std::env::current_dir().unwrap_or_default(),
+            )
+        };
+        let mut sensitive_paths: Vec<_> = if scoped {
+            Vec::new()
+        } else {
+            self.files.private.iter().map(|p| {
+                json!({"path":p,"sensitivity":"critical","category":"application_private_data","descendants":true})
+            }).collect()
+        };
         // The browser selects the most specific rule. FilePolicy enforces the same session boundary.
         sensitive_paths
             .push(json!({"path":s.cache,"sensitivity":"none","category":"","descendants":true}));
@@ -247,8 +281,8 @@ impl App {
         let signaling_gateway = crate::network::peer::official_signaling::GATEWAY;
         #[cfg(not(feature = "pro"))]
         let signaling_gateway = "";
-        json!({"separator":std::path::MAIN_SEPARATOR_STR,"home":dirs::home_dir().unwrap_or_default(),
-            "cache":s.cache,"app":std::env::current_dir().unwrap_or_default(),"roots":roots(),
+        json!({"separator":std::path::MAIN_SEPARATOR_STR,"home":home,
+            "cache":s.cache,"app":app,"roots":roots,
             "interfaces":interfaces(),"fingerprint":self.identity.fingerprint,"publicKey":self.identity.public_key,"compressionCodecs":[0,1],
             "deviceCertificatePem":self.identity.certificate_pem,
             "officialSignalingGateway":signaling_gateway,

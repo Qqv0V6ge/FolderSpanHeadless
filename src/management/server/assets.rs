@@ -2,6 +2,37 @@ use crate::management::reply::Reply;
 use axum::response::{IntoResponse, Response};
 use std::path::{Path, PathBuf};
 
+fn locate(root: &Path, path: &str, private: &[PathBuf]) -> Option<PathBuf> {
+    let decoded = percent_encoding::percent_decode_str(path)
+        .decode_utf8()
+        .ok()?;
+    let path = decoded.trim_start_matches('/');
+    if path.contains(['\\', '\0']) || path.split('/').any(|s| matches!(s, "." | "..")) {
+        return None;
+    }
+    let root = root.canonicalize().ok()?;
+    let mut file = root.join(path);
+    if file.is_dir() {
+        file = file.join("index.html");
+    }
+    let file = file.canonicalize().ok()?;
+    if !file.starts_with(&root) || !file.is_file() {
+        return None;
+    }
+    let canonical = crate::runtime::config::canonical_path(&file).ok()?;
+    if private
+        .iter()
+        .any(|root| crate::storage::files::within(&canonical, root))
+    {
+        return None;
+    }
+    Some(file)
+}
+
+pub fn has_web_index(root: &Path, private: &[PathBuf]) -> bool {
+    locate(root, "/", private).is_some_and(|file| std::fs::File::open(file).is_ok())
+}
+
 pub(super) async fn static_asset(
     root: &Path,
     path: &str,
@@ -9,35 +40,9 @@ pub(super) async fn static_asset(
     private: &[PathBuf],
 ) -> Response {
     let not_found = || Reply::error(404, "not_found", "not found").into_response();
-    let Ok(decoded) = percent_encoding::percent_decode_str(path).decode_utf8() else {
+    let Some(file) = locate(root, path, private) else {
         return not_found();
     };
-    let path = decoded.trim_start_matches('/');
-    if path.contains(['\\', '\0']) || path.split('/').any(|s| matches!(s, "." | "..")) {
-        return not_found();
-    }
-    let Ok(root) = root.canonicalize() else {
-        return not_found();
-    };
-    let mut file = root.join(path);
-    if file.is_dir() {
-        file = file.join("index.html");
-    }
-    let Ok(file) = file.canonicalize() else {
-        return not_found();
-    };
-    if !file.starts_with(&root) || !file.is_file() {
-        return not_found();
-    }
-    let Ok(canonical) = crate::runtime::config::canonical_path(&file) else {
-        return not_found();
-    };
-    if private
-        .iter()
-        .any(|root| crate::storage::files::within(&canonical, root))
-    {
-        return not_found();
-    }
     let Ok(stream) = tokio::fs::File::open(&file).await else {
         return not_found();
     };

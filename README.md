@@ -1,6 +1,8 @@
 # FolderSpanHeadless
 
-FolderSpan 的独立 Rust 无界面宿主。解压便携包，运行 `./folderspan-headless`（Windows 使用 `folderspan-headless.exe`）。按控制台提示打开管理页面并输入首次启动生成的密钥。普通版便携包可内置 JS 或 Wasm。Pro 使用同一次工作流生成的外置 Web 制品，解压后用 `--web-root` 指向其中的 `web-ui` 目录。
+FolderSpan 的独立 Rust 无界面宿主。解压便携包，在交互终端运行 `./folderspan-headless`（Windows 使用 `folderspan-headless.exe`）。首次部署时，在终端管理界面创建并保存 Web 登录密钥，再启动服务，用该密钥登录管理页面。无人值守部署也使用这个数据目录和已保存的密钥。升级后，旧的单密钥仍可用于登录。
+
+普通版便携包可内置 JS 或 Wasm。Pro 使用同一次工作流生成的外置 Web 制品，解压后用 `--web-root` 指向其中的 `web-ui` 目录。
 
 使用 Rust 1.88 执行 `cargo build --release --locked` 即可构建普通版宿主。配套 Web 和便携包通过公开客户端仓库的 **Package FolderSpanHeadless** 工作流构建。获准访问私有 Rust 实现的开发者可将它检出到本仓库忽略的 `pro/`，再以 `--features pro` 编译。
 
@@ -8,7 +10,9 @@ Actions 便携包的 `upstream.lock.json` 记录 Rust 宿主提交、配套 Web 
 
 ## English
 
-FolderSpanHeadless is the native Rust host for the FolderSpan Web UI. Extract the portable archive, run `./folderspan-headless` (`folderspan-headless.exe` on Windows), and open the address printed at startup. Enter the key generated on first launch. Standard archives can bundle the JS or Wasm UI. For Pro, extract the Web artifact from the same workflow run and pass its `web-ui` directory to `--web-root`.
+FolderSpanHeadless is the native Rust host for the FolderSpan Web UI. Extract the portable archive and run `./folderspan-headless` (`folderspan-headless.exe` on Windows) in an interactive terminal. On first setup, create and save a Web login key in the terminal interface, then start the service and use the key to sign in. Unattended deployments use the same data directory and saved key. An existing single key still works after upgrading.
+
+Standard archives can bundle the JS or Wasm UI. For Pro, extract the Web artifact from the same workflow run and pass its `web-ui` directory to `--web-root`.
 
 Build the standard host with Rust 1.88 and `cargo build --release --locked`. The public client's **Package FolderSpanHeadless** workflow builds the companion Web and portable archives. Developers with access to the private Rust implementation can check it out in the ignored `pro/` directory and enable `--features pro`.
 

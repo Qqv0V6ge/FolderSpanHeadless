@@ -26,6 +26,26 @@ struct Directory {
 fn denied() -> anyhow::Error {
     std::io::Error::from(std::io::ErrorKind::PermissionDenied).into()
 }
+
+fn verify_scoped_path(path: &Path) -> Result<()> {
+    // Reject aliases before comparing grants. The actual I/O still opens components without following links.
+    for ancestor in path.ancestors() {
+        match std::fs::symlink_metadata(ancestor) {
+            Ok(meta) => {
+                ensure!(
+                    !meta.is_symlink()
+                        && crate::config::canonical_path(ancestor)
+                            .is_ok_and(|actual| actual == ancestor),
+                    denied()
+                );
+                return Ok(());
+            }
+            Err(e) if e.kind() == ErrorKind::NotFound => {}
+            Err(e) => return Err(e.into()),
+        }
+    }
+    Err(denied())
+}
 pub(crate) fn within(path: &Path, root: &Path) -> bool {
     if cfg!(any(windows, target_os = "macos")) {
         let p = path.to_string_lossy().to_lowercase();
@@ -55,9 +75,19 @@ pub(crate) fn open_parent_nofollow(path: &Path) -> Result<(Dir, PathBuf, PathBuf
 }
 impl FilePolicy {
     pub fn check(&self, path: &Path, session: &Session) -> Result<()> {
+        self.check_access(path, session, false)
+    }
+
+    pub(crate) fn check_write(&self, path: &Path, session: &Session) -> Result<()> {
+        self.check_access(path, session, true)
+    }
+
+    fn check_access(&self, path: &Path, session: &Session, write: bool) -> Result<()> {
         if path.as_os_str().is_empty() {
             return Err(denied());
         }
+        let grants = session.access.directories();
+        ensure!(grants.is_none() || path.is_absolute(), denied());
         let path = std::path::absolute(path)?;
         if path.components().any(|c| matches!(c, Component::ParentDir)) {
             return Err(denied());
@@ -112,15 +142,34 @@ impl FilePolicy {
                 return Err(denied());
             }
         }
+        if let Some(grants) = grants {
+            if own {
+                ensure!(path.starts_with(&session.cache), denied());
+            } else {
+                let grant = grants
+                    .iter()
+                    .filter(|grant| path.starts_with(&grant.path))
+                    .max_by_key(|grant| grant.path.components().count())
+                    .ok_or_else(denied)?;
+                ensure!(!write || grant.write, denied());
+            }
+            verify_scoped_path(&path)?;
+        }
         Ok(())
     }
     fn check_tree_mutation(&self, path: &Path, session: &Session) -> Result<()> {
-        self.check(path, session)?;
+        self.check_write(path, session)?;
         let path = std::path::absolute(path)?;
         // Moving/deleting an ancestor must not relocate or erase private application state.
         if self.private.iter().any(|private| within(private, &path)) {
             return Err(denied());
         }
+        ensure!(
+            !session.access.directories().is_some_and(|grants| grants
+                .iter()
+                .any(|grant| !grant.write && grant.path.starts_with(&path))),
+            denied()
+        );
         Ok(())
     }
     fn parent(&self, path: &Path, session: &Session) -> Result<(Dir, PathBuf, PathBuf)> {
@@ -132,16 +181,21 @@ impl FilePolicy {
         Ok(parent.open_dir_nofollow(name)?)
     }
     pub(crate) fn make_directory(&self, path: &Path, session: &Session) -> Result<()> {
-        self.check(path, session)?;
+        self.check_write(path, session)?;
         let absolute = std::path::absolute(path)?;
         let root = absolute.ancestors().last().context("no path root")?;
         let mut dir = Dir::open_ambient_dir(root, ambient_authority())?;
+        let mut current = root.to_owned();
         for part in absolute.strip_prefix(root)?.components() {
             match part {
                 Component::Normal(name) => {
+                    current.push(name);
                     dir = match dir.open_dir_nofollow(name) {
                         Ok(child) => child,
                         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                            if session.access.directories().is_some() {
+                                self.check_write(&current, session)?;
+                            }
                             match dir.create_dir(name) {
                                 Ok(()) => {}
                                 Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
@@ -159,7 +213,7 @@ impl FilePolicy {
         Ok(())
     }
     pub(crate) fn receive_target(&self, path: &Path, session: &Session) -> Result<ReceiveTarget> {
-        self.check(path, session)?;
+        self.check_write(path, session)?;
         self.make_directory(path.parent().context("no file parent")?, session)?;
         let (parent, name, _) = self.parent(path, session)?;
         let mut options = OpenOptions::new();
@@ -193,7 +247,8 @@ impl FilePolicy {
         create: bool,
         append: bool,
     ) -> Result<cap_std::fs::File> {
-        let (parent, name, _) = self.parent(path, session)?;
+        self.check_access(path, session, write || create || append)?;
+        let (parent, name, _) = open_parent_nofollow(path)?;
         let mut opt = OpenOptions::new();
         opt.read(!append)
             .write(write)
@@ -256,8 +311,12 @@ impl FilePolicy {
                     let mut count = 0;
                     for entry in dir.entries()? {
                         ensure!(!session.cancel.is_cancelled(), "session closed");
-                        entry?;
-                        count += 1;
+                        let entry = entry?;
+                        if session.access.directories().is_none()
+                            || self.check(&path.join(entry.file_name()), session).is_ok()
+                        {
+                            count += 1;
+                        }
                     }
                     Ok(count)
                 })
@@ -307,9 +366,12 @@ impl FilePolicy {
         match (method, operation) {
             ("GET", "/files/info") => Ok(Reply::json(self.info(p()?, session, false)?)),
             ("GET", "/files/details") => Ok(Reply::json(self.info(p()?, session, true)?)),
-            ("GET", "/files/roots") => Ok(Reply::json(roots())),
+            ("GET", "/files/roots") => Ok(Reply::json(self.roots_for(session))),
             ("GET", "/files/space") => {
                 self.check(p()?, session)?;
+                if session.access.directories().is_some() {
+                    return Ok(Reply::json(json!([-1, -1])));
+                }
                 #[cfg(target_os = "macos")]
                 let space = [-1i64, -1i64];
                 #[cfg(not(target_os = "macos"))]
@@ -342,6 +404,10 @@ impl FilePolicy {
                 Ok(Reply::json(value))
             }
             ("GET", "/files/directory-writable") => {
+                self.check(p()?, session)?;
+                if self.check_write(p()?, session).is_err() {
+                    return Ok(Reply::json(false));
+                }
                 let (parent, name, _) = self.parent(p()?, session)?;
                 let meta = parent.symlink_metadata(&name)?;
                 if meta.is_file() {
@@ -462,6 +528,11 @@ impl FilePolicy {
                                 continue;
                             }
                             let path = d.path.join(name);
+                            if session.access.directories().is_some()
+                                && self.check(&path, session).is_err()
+                            {
+                                continue;
+                            }
                             match e.metadata() {
                                 Ok(m) => entries.push(self.entry(&path, &m, d.count, session)),
                                 Err(_) => issues.push("directory entry failed".to_string()),
@@ -480,6 +551,7 @@ impl FilePolicy {
             ("POST", "/files/create") | ("POST", "/files/mkdir") | ("POST", "/files/mkdirs") => {
                 let v = input()?;
                 let path = Path::new(string(&v, "path")?);
+                self.check_write(path, session)?;
                 if operation == "/files/mkdirs" {
                     let existing = self
                         .parent(path, session)
@@ -561,6 +633,7 @@ impl FilePolicy {
             ("POST", "/files/set-modified-time") => {
                 let v = input()?;
                 let path = Path::new(string(&v, "path")?);
+                self.check_write(path, session)?;
                 let millis = v["millis"]
                     .as_u64()
                     .filter(|&ms| ms > 0 && ms <= i64::MAX as u64)
@@ -600,6 +673,7 @@ impl FilePolicy {
                     )
                 };
                 self.check_tree_mutation(&from, session)?;
+                self.check_tree_mutation(&to, session)?;
                 let (src, name, _) = self.parent(&from, session)?;
                 let (dst, new, _) = self.parent(&to, session)?;
                 let meta = src.symlink_metadata(&name)?;
@@ -649,6 +723,19 @@ impl FilePolicy {
                 Ok(Reply::json(true))
             }
             _ => Ok(Reply::error(404, "not_found", "unknown platform operation")),
+        }
+    }
+
+    pub(crate) fn roots_for(&self, session: &Session) -> Value {
+        match session.access.directories() {
+            None => roots(),
+            Some(grants) => json!(
+                grants
+                    .iter()
+                    .filter(|grant| self.directory(&grant.path, session).is_ok())
+                    .map(|grant| json!({"path":grant.path,"totalSpace":0,"freeSpace":0}))
+                    .collect::<Vec<_>>()
+            ),
         }
     }
 }

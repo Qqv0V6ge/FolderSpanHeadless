@@ -22,13 +22,16 @@ pub async fn serve(listener: TcpListener, app: Arc<App>, cancel: CancellationTok
     let slots = Arc::new(tokio::sync::Semaphore::new(256));
     let mut jobs = JoinSet::new();
     let mut reaper = interval(Duration::from_secs(5));
-    loop {
+    let result = loop {
         tokio::select! {
-            _=cancel.cancelled()=>break,
+            _=cancel.cancelled()=>break Ok(()),
             _=reaper.tick()=>app.reap(),
             _=jobs.join_next(),if !jobs.is_empty()=>{},
             accepted=listener.accept()=>{
-                let (stream,peer)=accepted?;
+                let (stream,peer)=match accepted {
+                    Ok(peer) => peer,
+                    Err(error) => break Err(error.into()),
+                };
                 let Ok(permit)=slots.clone().try_acquire_owned()else{drop(stream);continue;};
                 let tls=tls.clone();let router=router.clone();
                 jobs.spawn(async move {
@@ -47,9 +50,9 @@ pub async fn serve(listener: TcpListener, app: Arc<App>, cancel: CancellationTok
                 });
             }
         }
-    }
+    };
     app.close().await;
     jobs.abort_all();
     while jobs.join_next().await.is_some() {}
-    Ok(())
+    result
 }

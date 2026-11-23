@@ -11,7 +11,7 @@ pub use network::{
     peer::{devices, transfer as device_transfer, transport},
     tls, tls_client,
 };
-pub use runtime::{config, instance_lock};
+pub use runtime::{access, config, instance_lock};
 pub use storage::{
     accounts as storage_accounts, archive, content_crypto, content_history, files,
     remote::{ftp, http_directory, nextcloud, nfs, s3, seafile, sftp, smb, webdav},

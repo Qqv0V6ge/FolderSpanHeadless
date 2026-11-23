@@ -1,4 +1,4 @@
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, ensure};
 use std::{
     fs::{File, OpenOptions},
     path::{Path, PathBuf},
@@ -13,6 +13,35 @@ pub fn desktop_data_dir() -> Result<PathBuf> {
 pub struct InstanceLock {
     _file: File,
 }
+
+pub struct LockedProfile {
+    pub data_dir: PathBuf,
+    _data: InstanceLock,
+    _desktop: InstanceLock,
+}
+
+impl LockedProfile {
+    pub fn acquire(path: &Path) -> Result<Self> {
+        let desktop = desktop_data_dir()?;
+        std::fs::create_dir_all(&desktop)?;
+        let _desktop = InstanceLock::acquire(&desktop.join("instance.lock"))?;
+        if let Ok(path) = super::config::canonical_path(path) {
+            ensure!(
+                path != super::config::canonical_path(&desktop)?,
+                "choose a data directory separate from FolderSpan Desktop"
+            );
+        }
+        super::config::private_directory(path)?;
+        let data_dir = super::config::canonical_path(path)?;
+        let _data = InstanceLock::acquire(&data_dir.join("instance.lock"))?;
+        Ok(Self {
+            data_dir,
+            _data,
+            _desktop,
+        })
+    }
+}
+
 impl InstanceLock {
     pub fn acquire(path: &Path) -> Result<Self> {
         let mut options = OpenOptions::new();

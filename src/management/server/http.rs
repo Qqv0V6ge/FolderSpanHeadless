@@ -15,7 +15,7 @@ use std::sync::Arc;
 #[derive(serde::Deserialize)]
 struct LoginRequest {
     #[serde(default)]
-    secret: String,
+    secret: zeroize::Zeroizing<String>,
     #[serde(default, rename = "protocolVersion")]
     protocol_version: i32,
 }
@@ -156,14 +156,14 @@ async fn http(
                 "incompatible_protocol",
                 "update Web and Runtime together",
             ),
-            Some(v) if !app.credentials.matches(&v.secret) => {
-                Reply::error(401, "unauthorized", "authentication failed")
-            }
-            Some(_) => match app.create_session() {
-                Ok(s) => {
-                    Reply::json(json!({"ok":true,"sessionToken":s.token,"host":app.host_info(&s)}))
-                }
-                Err(_) => Reply::error(429, "capacity", "session capacity reached"),
+            Some(v) => match app.credentials.authorize(&v.secret) {
+                None => Reply::error(401, "unauthorized", "authentication failed"),
+                Some(access) => match app.create_session(access) {
+                    Ok(s) => Reply::json(
+                        json!({"ok":true,"sessionToken":s.token,"host":app.host_info(&s)}),
+                    ),
+                    Err(_) => Reply::error(429, "capacity", "session capacity reached"),
+                },
             },
         }
     } else if matches!(path, "/api/web-ui/session" | "/api/web-ui/files") {
@@ -213,7 +213,7 @@ async fn http(
         }
     } else if matches!(method, "GET" | "HEAD") {
         return static_asset(
-            &app.config.web_root,
+            &app.config.settings.web_root,
             path,
             method == "HEAD",
             &app.files.private,

@@ -640,7 +640,7 @@ impl Operation<'_> {
         } else {
             state
                 .files
-                .check(std::path::Path::new(&destination), self.session)?;
+                .check_write(std::path::Path::new(&destination), self.session)?;
         }
         let mut stage = state.stages.open(task, &input.staged_path, false)?;
         let path = Path {

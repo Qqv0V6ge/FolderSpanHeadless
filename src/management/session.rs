@@ -1,4 +1,7 @@
-use crate::runtime::config::{private_directory, random_id};
+use crate::runtime::{
+    access::Access,
+    config::{private_directory, random_id},
+};
 use anyhow::{Result, ensure};
 use std::{
     any::Any,
@@ -70,6 +73,7 @@ struct Inner {
 pub struct Session {
     pub token: String,
     pub cache: PathBuf,
+    pub(crate) access: Access,
     inner: Mutex<Inner>,
     pub cancel: CancellationToken,
     pub operations: Arc<tokio::sync::Semaphore>,
@@ -79,6 +83,10 @@ pub struct Session {
 }
 impl Session {
     pub fn new(root: &Path) -> Result<Arc<Self>> {
+        Self::with_access(root, Access::Full)
+    }
+
+    pub(crate) fn with_access(root: &Path, access: Access) -> Result<Arc<Self>> {
         let root = crate::runtime::config::canonical_path(root)?;
         let token = random_id(16);
         let cache = root.join("sessions").join(&token);
@@ -88,6 +96,7 @@ impl Session {
         Ok(Arc::new(Self {
             token,
             cache,
+            access,
             inner: Mutex::new(Inner {
                 resources: HashMap::new(),
                 replies: HashMap::new(),

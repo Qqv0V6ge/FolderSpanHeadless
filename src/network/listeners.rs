@@ -176,6 +176,13 @@ async fn relay(
 ) -> Response {
     match relay_inner(state, request, scheme, peer).await {
         Ok(response) => response,
+        Err(error)
+            if error
+                .downcast_ref::<std::io::Error>()
+                .is_some_and(|error| error.kind() == std::io::ErrorKind::PermissionDenied) =>
+        {
+            Reply::from_error(error).into_response()
+        }
         Err(_) => Reply::error(500, "platform_error", "platform operation failed").into_response(),
     }
 }
@@ -425,6 +432,12 @@ pub async fn handle(
                 && matches!(input.kind.as_str(), "link-share" | "mcp" | "device"),
             "invalid listener configuration"
         );
+        use crate::access::Feature;
+        session.access.require(match input.kind.as_str() {
+            "device" => Feature::Devices,
+            "mcp" => Feature::Mcp,
+            _ => Feature::Shares,
+        })?;
         let mut listeners = if input.kind != "mcp" || input.lan_access {
             vec![bind_public(input.port)?]
         } else {

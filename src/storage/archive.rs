@@ -223,7 +223,7 @@ pub fn validate_write(request: &WriteRequest, session: &Session, files: &FilePol
             && request.expected_file_bytes <= MAX_PAYLOAD,
         "invalid FSAR receive plan"
     );
-    files.check(Path::new(&request.destination_root_path), session)
+    files.check_write(Path::new(&request.destination_root_path), session)
 }
 pub struct Reader {
     input: mpsc::Receiver<Result<Vec<u8>>>,
@@ -441,7 +441,6 @@ async fn frames(
         );
         let root = Path::new(&request.destination_root_path);
         let target = root.join(path);
-        files.check(&target, session)?;
         t.prepare(session, files, &target, length, entry.kind == Some(2))
             .await?;
         if entry.kind == Some(2) {

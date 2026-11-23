@@ -24,6 +24,12 @@ struct StoredIdentity {
     private_key: String,
     certificate: String,
 }
+
+pub struct CertificateStatus {
+    pub valid: bool,
+    pub summary: String,
+}
+
 pub struct Identity {
     pub server: Arc<ServerConfig>,
     pub fingerprint: String,
@@ -33,6 +39,44 @@ pub struct Identity {
     key: RsaPrivateKey,
 }
 impl Identity {
+    pub fn certificate_status(data: &Path) -> Result<Option<CertificateStatus>> {
+        #[derive(Deserialize)]
+        struct Certificate {
+            version: u32,
+            certificate: String,
+        }
+        let path = data.join("tls-identity/identity.json");
+        let Some(bytes) = crate::config::read_state(&path, 64 * 1024)? else {
+            return Ok(None);
+        };
+        let bytes = Zeroizing::new(bytes);
+        let stored: Certificate = serde_json::from_slice(&bytes)
+            .map_err(|_| anyhow::anyhow!("invalid saved TLS identity"))?;
+        ensure!(stored.version == 1, "unsupported TLS identity version");
+        let der = STANDARD
+            .decode(stored.certificate)
+            .map_err(|_| anyhow::anyhow!("invalid saved TLS certificate"))?;
+        let (rest, certificate) = x509_parser::parse_x509_certificate(&der)
+            .map_err(|_| anyhow::anyhow!("invalid saved TLS certificate"))?;
+        ensure!(rest.is_empty(), "invalid saved TLS certificate");
+        let validity = certificate.validity();
+        let valid = validity.is_valid();
+        let state = if valid {
+            "valid"
+        } else {
+            "outside validity dates"
+        };
+        Ok(Some(CertificateStatus {
+            valid,
+            summary: format!(
+                "{state}. Valid from {} to {}. SHA-256 {}",
+                validity.not_before,
+                validity.not_after,
+                hex::encode_upper(Sha256::digest(&der))
+            ),
+        }))
+    }
+
     pub fn load(data: &Path) -> Result<Self> {
         let dir = data.join("tls-identity");
         private_directory(&dir)?;
@@ -141,11 +185,19 @@ mod tests {
             crate::runtime::config::canonical_path(&std::env::temp_dir()).unwrap(),
         )
         .unwrap();
+        assert!(Identity::certificate_status(d.path()).unwrap().is_none());
         let a = Identity::load(d.path()).unwrap();
         let b = Identity::load(d.path()).unwrap();
         assert_eq!(a.device_id, b.device_id);
         assert_eq!(a.fingerprint, b.fingerprint);
         assert_eq!(a.certificate_pem, b.certificate_pem);
+        assert!(
+            Identity::certificate_status(d.path())
+                .unwrap()
+                .unwrap()
+                .summary
+                .contains(&a.fingerprint)
+        );
         assert_eq!(
             Identity::public_key_from_certificate(a.certificate_pem.as_bytes()),
             Some(a.public_key.clone()),
@@ -155,6 +207,7 @@ mod tests {
         assert!(Identity::verify(&b.public_key, b"hello", &signature));
         assert!(!Identity::verify(&b.public_key, b"changed", &signature));
         std::fs::write(d.path().join("tls-identity/identity.json"), b"broken").unwrap();
+        assert!(Identity::certificate_status(d.path()).is_err());
         assert!(Identity::load(d.path()).is_err());
     }
 }

@@ -3,51 +3,61 @@ mod windows;
 
 use anyhow::{Context, Result, bail};
 use rand::{RngCore, rngs::OsRng};
-use sha2::{Digest, Sha256};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::{
     fs::{self, OpenOptions},
-    io::Write,
+    io::{Read, Write},
     net::IpAddr,
     path::{Path, PathBuf},
 };
-use subtle::ConstantTimeEq;
 
 pub const DISPLAY_NAME: &str = "FolderSpanHeadless";
 
 #[derive(Clone, Debug)]
 pub struct Config {
     pub data_dir: PathBuf,
+    pub settings: Settings,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Settings {
     pub web_root: PathBuf,
     pub bind_address: Option<IpAddr>,
     pub port: u16,
-    pub reset_key: bool,
+    pub allowed_origins: String,
 }
-impl Config {
+
+#[derive(Clone, Debug)]
+pub struct Launch {
+    pub data_dir: PathBuf,
+    web_root: Option<PathBuf>,
+    bind_address: Option<IpAddr>,
+    port: Option<u16>,
+    allowed_origins: Option<String>,
+}
+
+impl Launch {
     pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Option<Self>> {
-        let mut c = Self {
-            data_dir: dirs::data_local_dir()
-                .context("cannot locate data directory")?
-                // Resolve existing keys, certificates, and settings after the project rename.
-                .join("FolderSpanHeadlessRust"),
-            web_root: std::env::current_exe()?
-                .parent()
-                .context("no executable directory")?
-                .join("web-ui"),
-            bind_address: None,
-            port: 12043,
-            reset_key: false,
-        };
+        let mut data_dir = None;
+        let mut web_root = None;
+        let mut bind_address = None;
+        let mut port = None;
         let mut args = args.into_iter();
         while let Some(arg) = args.next() {
             match arg.as_str() {
                 "--data-dir" => {
-                    c.data_dir = PathBuf::from(args.next().context("--data-dir requires a path")?)
+                    data_dir = Some(PathBuf::from(
+                        args.next().context("--data-dir requires a path")?,
+                    ));
                 }
                 "--web-root" => {
-                    c.web_root = PathBuf::from(args.next().context("--web-root requires a path")?)
+                    web_root = Some(PathBuf::from(
+                        args.next().context("--web-root requires a path")?,
+                    ));
                 }
                 "--bind-address" => {
-                    c.bind_address = Some(
+                    bind_address = Some(
                         args.next()
                             .context("--bind-address requires an IP address")?
                             .parse()
@@ -55,24 +65,164 @@ impl Config {
                     )
                 }
                 "--port" => {
-                    c.port = args
-                        .next()
-                        .context("--port requires a number")?
-                        .parse()
-                        .context("invalid port")?
+                    port = Some(
+                        args.next()
+                            .context("--port requires a number")?
+                            .parse()
+                            .context("invalid port")?,
+                    );
                 }
-                "--reset-web-ui-key" => c.reset_key = true,
                 "--help" | "-h" => {
                     println!(
-                        "{DISPLAY_NAME}\n  --data-dir PATH\n  --web-root PATH\n  --bind-address IP (default: all interfaces)\n  --port PORT (default: 12043)\n  --reset-web-ui-key"
+                        "{DISPLAY_NAME}\nOpens the management terminal when launched interactively.\n  --data-dir PATH\n  --web-root PATH\n  --bind-address IP\n  --port PORT"
                     );
                     return Ok(None);
                 }
                 _ => bail!("unknown argument: {arg}"),
             }
         }
-        Ok(Some(c))
+        let data_dir = match data_dir {
+            Some(path) => path,
+            None => dirs::data_local_dir()
+                .context("cannot locate data directory")?
+                .join("FolderSpanHeadlessRust"),
+        };
+        let allowed_origins = match std::env::var("FOLDERSPAN_WEB_UI_ALLOWED_ORIGINS") {
+            Ok(value) => Some(value),
+            Err(std::env::VarError::NotPresent) => None,
+            Err(e) => return Err(e).context("invalid FOLDERSPAN_WEB_UI_ALLOWED_ORIGINS"),
+        };
+        Ok(Some(Self {
+            data_dir,
+            web_root,
+            bind_address,
+            port,
+            allowed_origins,
+        }))
     }
+
+    pub fn load_settings(&self) -> Result<(Settings, bool)> {
+        match read_json(&self.data_dir.join("settings.json"))? {
+            Some(settings) => Ok((settings, true)),
+            None => Ok((Settings::defaults()?, false)),
+        }
+    }
+
+    pub fn resolve(&self, mut settings: Settings) -> Config {
+        if let Some(path) = &self.web_root {
+            settings.web_root = path.clone();
+        }
+        if let Some(address) = self.bind_address {
+            settings.bind_address = Some(address);
+        }
+        if let Some(port) = self.port {
+            settings.port = port;
+        }
+        if let Some(origins) = &self.allowed_origins {
+            settings.allowed_origins = origins.clone();
+        }
+        Config {
+            data_dir: self.data_dir.clone(),
+            settings,
+        }
+    }
+
+    pub fn sources(&self, saved: bool) -> [&'static str; 4] {
+        let base = if saved { "saved" } else { "default" };
+        [
+            if self.bind_address.is_some() {
+                "argument"
+            } else {
+                base
+            },
+            if self.port.is_some() {
+                "argument"
+            } else {
+                base
+            },
+            if self.web_root.is_some() {
+                "argument"
+            } else {
+                base
+            },
+            if self.allowed_origins.is_some() {
+                "environment"
+            } else {
+                base
+            },
+        ]
+    }
+}
+
+impl Settings {
+    fn defaults() -> Result<Self> {
+        Ok(Self {
+            web_root: std::env::current_exe()?
+                .parent()
+                .context("no executable directory")?
+                .join("web-ui"),
+            bind_address: None,
+            port: 12043,
+            allowed_origins: "*".into(),
+        })
+    }
+
+    pub fn save(&self, dir: &Path) -> Result<()> {
+        let mut settings = self.clone();
+        anyhow::ensure!(
+            !settings.web_root.as_os_str().is_empty(),
+            "Web directory is empty"
+        );
+        settings.web_root = std::path::absolute(&settings.web_root)?;
+        settings.policy([])?;
+        let bytes = serde_json::to_vec(&settings)?;
+        anyhow::ensure!(
+            bytes.len() <= 64 * 1024,
+            "deployment settings exceed size limit"
+        );
+        write_private(&dir.join("settings.json"), &bytes)
+    }
+
+    pub fn policy(
+        &self,
+        hosts: impl IntoIterator<Item = String>,
+    ) -> Result<crate::security::SecurityPolicy> {
+        crate::security::SecurityPolicy::new(
+            hosts,
+            self.allowed_origins
+                .split(',')
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(str::to_owned),
+        )
+    }
+}
+
+pub(crate) fn read_state(path: &Path, limit: u64) -> Result<Option<Vec<u8>>> {
+    let meta = match fs::symlink_metadata(path) {
+        Ok(meta) => meta,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(err) => return Err(err.into()),
+    };
+    anyhow::ensure!(
+        meta.is_file() && !meta.file_type().is_symlink(),
+        "invalid state file type"
+    );
+    let mut bytes = Vec::new();
+    fs::File::open(path)?
+        .take(limit + 1)
+        .read_to_end(&mut bytes)?;
+    anyhow::ensure!(bytes.len() as u64 <= limit, "state file exceeds size limit");
+    Ok(Some(bytes))
+}
+
+fn read_json<T: DeserializeOwned>(path: &Path) -> Result<Option<T>> {
+    read_state(path, 64 * 1024)?
+        .map(|bytes| {
+            serde_json::from_slice(&bytes)
+                .map_err(|_| anyhow::anyhow!("invalid saved deployment settings"))
+        })
+        .transpose()
 }
 pub fn random_id(bytes: usize) -> String {
     let mut v = vec![0; bytes];
@@ -149,34 +299,6 @@ pub fn write_private(path: &Path, bytes: &[u8]) -> Result<()> {
     }
     result
 }
-pub struct Credentials {
-    hash: [u8; 32],
-}
-impl Credentials {
-    pub fn load(dir: &Path, reset: bool) -> Result<(Self, Option<String>)> {
-        let path = dir.join("web-ui-key.sha256");
-        if path.exists() && !reset {
-            let bytes = fs::read(&path)?;
-            return Ok((
-                Self {
-                    hash: bytes
-                        .try_into()
-                        .map_err(|_| anyhow::anyhow!("invalid stored credential hash"))?,
-                },
-                None,
-            ));
-        }
-        let key = format!("fwui_{}_{}", random_id(8), random_id(32));
-        let hash: [u8; 32] = Sha256::digest(key.as_bytes()).into();
-        write_private(&path, &hash)?;
-        Ok((Self { hash }, Some(key)))
-    }
-    pub fn matches(&self, secret: &str) -> bool {
-        let secret = secret.trim();
-        let actual: [u8; 32] = Sha256::digest(secret.as_bytes()).into();
-        !secret.is_empty() && !secret.starts_with("fmcp_") && bool::from(self.hash.ct_eq(&actual))
-    }
-}
 // Windows canonicalization adds a verbatim prefix; do not expose that device-alias syntax to Web paths.
 pub fn canonical_path(path: &Path) -> Result<PathBuf> {
     let path = path.canonicalize()?;
@@ -228,20 +350,25 @@ mod tests {
         }
     }
     #[test]
-    fn credential_survives_and_rotates() {
-        let d = tempfile::tempdir_in(
-            crate::runtime::config::canonical_path(&std::env::temp_dir()).unwrap(),
-        )
-        .unwrap();
-        let (c, k) = Credentials::load(d.path(), false).unwrap();
-        let k = k.unwrap();
-        assert!(c.matches(&format!(" {k} ")));
-        assert!(!c.matches("fmcp_bad"));
-        let (same, none) = Credentials::load(d.path(), false).unwrap();
-        assert!(none.is_none());
-        assert!(same.matches(&k));
-        let (new, k2) = Credentials::load(d.path(), true).unwrap();
-        assert!(!new.matches(&k));
-        assert!(new.matches(&k2.unwrap()));
+    fn saved_settings_and_overrides() {
+        let dir = tempfile::tempdir().unwrap();
+        let launch = Launch {
+            data_dir: dir.path().into(),
+            bind_address: None,
+            port: Some(9090),
+            allowed_origins: Some(String::new()),
+            web_root: None,
+        };
+        let (mut settings, saved) = launch.load_settings().unwrap();
+        assert!(!saved);
+        settings.port = 8080;
+        settings.allowed_origins = "https://example.test".into();
+        settings.save(dir.path()).unwrap();
+        let (settings, saved) = launch.load_settings().unwrap();
+        assert!(saved);
+        assert_eq!(settings.port, 8080);
+        let effective = launch.resolve(settings).settings;
+        assert_eq!(effective.port, 9090);
+        assert_eq!(effective.allowed_origins, "");
     }
 }

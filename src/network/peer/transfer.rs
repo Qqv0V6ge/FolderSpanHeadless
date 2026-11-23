@@ -102,7 +102,7 @@ impl Transfer {
         size: u64,
         directory: bool,
     ) -> Result<()> {
-        files.check(path, session)?;
+        files.check_write(path, session)?;
         if !self.request.callback_id.is_empty() {
             session
                 .callback(
@@ -279,7 +279,11 @@ pub async fn open(
             r.file_size >= 0 && r.end_offset <= r.file_size,
             "invalid file transfer range"
         );
-        files.check(Path::new(&r.path), session)?;
+        if r.kind == "ReceiveFile" {
+            files.check_write(Path::new(&r.path), session)?;
+        } else {
+            files.check(Path::new(&r.path), session)?;
+        }
     } else if r.kind == "SendArchive" {
         crate::storage::archive::validate_read(
             r.archive_read
