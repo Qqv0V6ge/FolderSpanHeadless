@@ -9,6 +9,8 @@ import shutil
 ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = "folderspan-web-artifact.json"
 LOCK_NAME = "upstream.lock.json"
+PROTOCOL_VERSION = 1
+SPECIFICATION_VERSION = 4
 
 def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
@@ -27,7 +29,7 @@ def inventory(root):
 def verify(root, lock):
     manifest = json.loads((root / MANIFEST).read_text(encoding="utf-8"))
     if (manifest["upstreamCommit"] != lock["upstreamCommit"]
-            or manifest["protocolVersion"] != lock.get("protocolVersion", 1)):
+            or manifest["protocolVersion"] != lock.get("protocolVersion", PROTOCOL_VERSION)):
         raise ValueError("Web artifact does not match the pinned protocol/source")
     edition = manifest.get("edition", "standard")
     if edition == "pro":
@@ -54,13 +56,12 @@ def seal(source, output, kind, edition="standard", *, lock_path=None,
     if source == output or source in output.parents or output in source.parents or output.exists():
         raise ValueError("Output must be a new directory outside the source")
     files = inventory(source)
-    baseline_path = ROOT / LOCK_NAME
-    lock_path = lock_path or baseline_path
     if client_commit is None:
+        lock_path = lock_path or ROOT / LOCK_NAME
         lock = json.loads(lock_path.read_text(encoding="utf-8"))
     else:
-        if lock_path.resolve() == baseline_path.resolve() or lock_path.exists():
-            raise ValueError("A new client commit requires a new lock file")
+        if lock_path is None or lock_path.exists():
+            raise ValueError("A new client commit requires --lock pointing to a new file")
         if not re.fullmatch(r"[0-9a-f]{40}", client_commit):
             raise ValueError("Client commit must be a full Git SHA")
         if host_commit is not None and not re.fullmatch(r"[0-9a-f]{40}", host_commit):
@@ -74,11 +75,10 @@ def seal(source, output, kind, edition="standard", *, lock_path=None,
                 raise ValueError("A Headless Pro commit requires a Pro build and a full Git SHA")
             if host_commit is None:
                 raise ValueError("A Headless Pro commit requires a public native host commit")
-        baseline = json.loads(baseline_path.read_text(encoding="utf-8"))
         lock = {
             "upstreamCommit": client_commit,
-            "protocolVersion": baseline["protocolVersion"],
-            "specificationVersion": baseline["specificationVersion"],
+            "protocolVersion": PROTOCOL_VERSION,
+            "specificationVersion": SPECIFICATION_VERSION,
         }
         if edition == "pro":
             lock["proCommit"] = pro_commit
@@ -87,7 +87,7 @@ def seal(source, output, kind, edition="standard", *, lock_path=None,
         if host_pro_commit is not None:
             lock["headlessProCommit"] = host_pro_commit
     manifest = {"version": 1, "upstreamCommit": lock["upstreamCommit"],
-                "protocolVersion": lock.get("protocolVersion", 1),
+                "protocolVersion": lock.get("protocolVersion", PROTOCOL_VERSION),
                 "kind": kind, "edition": edition, "files": files}
     if edition == "pro":
         manifest["proCommit"] = lock["proCommit"]

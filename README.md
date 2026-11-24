@@ -6,7 +6,7 @@ FolderSpan 的独立 Rust 无界面宿主。解压便携包，在交互终端运
 
 使用 Rust 1.88 执行 `cargo build --release --locked` 即可构建普通版宿主。配套 Web 和便携包通过公开客户端仓库的 **Package FolderSpanHeadless** 工作流构建。获准访问私有 Rust 实现的开发者可将它检出到本仓库忽略的 `pro/`，再以 `--features pro` 编译。
 
-Actions 便携包的 `upstream.lock.json` 记录 Rust 宿主提交、配套 Web 的客户端提交、协议版本和目录摘要。独立下载的 Web 制品可用 `python3 tools/web_artifact.py --verify <web-ui> --lock <upstream.lock.json>` 校验。随包附带的依赖许可见 `third-party-licenses/index.json`。
+便携包中的 `upstream.lock.json` 由打包流程生成，记录 Rust 宿主提交、配套 Web 的客户端提交、协议版本和目录摘要。独立下载的 Web 制品可用 `python3 tools/web_artifact.py --verify <web-ui> --lock <upstream.lock.json>` 校验。随包附带的依赖许可见 `third-party-licenses/index.json`。
 
 ## English
 
@@ -16,4 +16,4 @@ Standard archives can bundle the JS or Wasm UI. For Pro, extract the Web artifac
 
 Build the standard host with Rust 1.88 and `cargo build --release --locked`. The public client's **Package FolderSpanHeadless** workflow builds the companion Web and portable archives. Developers with access to the private Rust implementation can check it out in the ignored `pro/` directory and enable `--features pro`.
 
-The Actions archive's `upstream.lock.json` records the Rust host revision, companion Web client revision, protocol version, and tree digest. Verify a separately downloaded Web artifact with `python3 tools/web_artifact.py --verify <web-ui> --lock <upstream.lock.json>`. See `third-party-licenses/index.json` for dependency licenses.
+The `upstream.lock.json` generated during packaging records the Rust host revision, companion Web client revision, protocol version, and tree digest. Verify a separately downloaded Web artifact with `python3 tools/web_artifact.py --verify <web-ui> --lock <upstream.lock.json>`. See `third-party-licenses/index.json` for dependency licenses.
