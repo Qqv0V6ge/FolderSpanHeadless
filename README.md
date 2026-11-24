@@ -41,6 +41,8 @@ FolderSpanHeadless 是 FolderSpan 的原生 Rust 无界面宿主。本仓库提�
 
 ## 快速开始
 
+查看[图文教程和网页练习](https://folderspan.com/docs/tutorial-headless/)，从创建访问密钥开始。
+
 1. 完整解压对应平台的便携包。在交互终端运行 `./folderspan-headless`，Windows 使用 `.\folderspan-headless.exe`。
 2. 首次部署时，在终端主菜单按 `6` 进入密钥管理，选择「新增密钥」并保存只显示一次的密钥。已有的 Rust 宿主单密钥升级后仍可用于登录。
 3. 返回主菜单，按 `1` 进入服务启停，选择「启动服务」。
@@ -94,6 +96,8 @@ cargo build --release --locked
 遇到问题时，请附上宿主版本或提交、Web 类型、操作系统和架构、复现步骤，以及已去除密钥的诊断信息。[GitHub Issues](https://github.com/Qqv0V6ge/FolderSpanHeadless/issues)
 
 ## English
+
+Follow the [illustrated user guide and browser exercise](https://folderspan.com/en/docs/tutorial-headless/) for your first setup.
 
 FolderSpanHeadless is the native Rust host for the [FolderSpan Web UI](https://github.com/Qqv0V6ge/FolderSpan). It lets you manage files on a server or always-on computer, connect to network storage and LAN peers, and assign read-only or read/write permissions per directory through access keys.
 
