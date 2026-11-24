@@ -2,6 +2,7 @@
 /.cache/
 /dist/
 /web-ui/
+/upstream.lock.json
 /pro
 *.log
 __pycache__/

@@ -1,7 +1,7 @@
 # 仓库指南
 
 - 本仓库负责 FolderSpan 的原生 Headless 宿主和便携包。Compose Web 页面和共享业务逻辑由同级 `FolderSpan/` 构建。
-- 新增或更新 Headless 能力时，在客户端改动的同一任务维护本仓库。跨仓库修改按已发布客户端契约核对兼容性，并用实际 Rust 宿主和配套 JS/Wasm 制品验证受影响的功能。配套 Web 制品变化时更新 `upstream.lock.json` 和相应的兼容性记录。
+- 新增或更新 Headless 能力时，在客户端改动的同一任务维护本仓库。跨仓库修改按已发布客户端契约核对兼容性，并用实际 Rust 宿主和配套 JS/Wasm 制品验证受影响的功能。打包时为配套 Web 制品生成 `upstream.lock.json`，并随制品交付。
 - 使用 `cargo fmt --all -- --check`、`cargo clippy --locked --all-targets -- -D warnings`、`cargo test --locked --all-targets` 和 `python3 -m unittest discover -s tests` 验证。涉及 Pro 时再验证 `--features pro` 和获准的 Pro Web 制品。
 - Rust 状态目录与 Desktop 分开，实例锁与 Desktop 共享。打包校验原生二进制架构、Web 制品摘要和第三方许可证。凭据、状态目录与 Pro Web 制品保存在各自授权范围内。
 - 本仓库提交普通版源码。官方信令、官方云存储和可续传上传的 Pro 实现在独立私有仓库，通过本地忽略的 `pro/` 加载。两版继续兼容已有的存储账号和上传状态文件。

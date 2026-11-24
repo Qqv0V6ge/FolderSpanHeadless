@@ -17,15 +17,12 @@ portable = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(portable)
 
 class ArtifactTests(unittest.TestCase):
-    def test_ci_lock_records_the_client_build_without_rewriting_the_baseline(self):
+    def test_ci_lock_records_the_client_build_without_a_source_lock(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             source = root / "source"
             source.mkdir()
             (source / "index.html").write_text("standard fixture")
-            baseline = {"upstreamCommit": "old", "proCommit": "private",
-                        "protocolVersion": 1, "specificationVersion": 4}
-            (root / "upstream.lock.json").write_text(json.dumps(baseline))
             build_lock = root / "ci-lock.json"
             artifact = root / "sealed"
             with patch.object(web_artifact, "ROOT", root):
@@ -34,11 +31,12 @@ class ArtifactTests(unittest.TestCase):
             lock = json.loads(build_lock.read_text())
             self.assertEqual(lock["upstreamCommit"], "a" * 40)
             self.assertEqual(lock["hostCommit"], "b" * 40)
+            self.assertEqual(lock["protocolVersion"], 1)
             self.assertEqual(lock["specificationVersion"], 4)
             self.assertNotIn("proCommit", lock)
             self.assertNotIn("headlessProCommit", lock)
             self.assertEqual(web_artifact.verify(artifact, lock)["kind"], "wasm")
-            self.assertEqual(json.loads((root / "upstream.lock.json").read_text()), baseline)
+            self.assertFalse((root / "upstream.lock.json").exists())
 
     def test_pro_artifact_has_an_independent_revision_and_digest(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -66,8 +64,6 @@ class ArtifactTests(unittest.TestCase):
             source = root / "source"
             source.mkdir()
             (source / "index.html").write_text("pro fixture")
-            (root / "upstream.lock.json").write_text(json.dumps(
-                {"protocolVersion": 1, "specificationVersion": 4}))
             build_lock = root / "ci-lock.json"
             artifact = root / "sealed-pro"
             with patch.object(web_artifact, "ROOT", root):

@@ -60,7 +60,7 @@ FolderSpanHeadless 是 FolderSpan 的原生 Rust 无界面宿主。本仓库提�
 
 将前端单独部署到其他来源时，可在宿主上设置 `FOLDERSPAN_WEB_UI_ALLOWED_ORIGINS`，填入页面的完整来源，例如 `https://files.example.com`。多个来源用逗号分隔。
 
-Actions 制品附带的 `upstream.lock.json` 记录本次构建的宿主提交、配套客户端提交、协议版本和 Web 目录摘要。在源码仓库中可用制品附带的锁定文件校验：
+打包流程生成 `upstream.lock.json` 并随 Actions 制品交付，记录本次构建的宿主提交、配套客户端提交、协议版本和 Web 目录摘要。在源码仓库中可用制品附带的锁定文件校验：
 
 ```bash
 python3 tools/web_artifact.py --verify /path/to/web-ui --lock /path/to/upstream.lock.json
@@ -101,6 +101,6 @@ Download a standard JS or Wasm portable archive from a successful run of [Packag
 
 Extract the archive and run `./folderspan-headless` (`.\folderspan-headless.exe` on Windows) in an interactive terminal. On first setup, open menu `6` to create and save a Web access key, then open menu `1` to start the service. Open the displayed address and sign in with the saved key. Set up the key under the same system user and data directory before running unattended.
 
-Build the standard host with Rust 1.88.0 and `cargo build --release --locked`. Use `--web-root` to select the companion `web-ui/` directory and set `FOLDERSPAN_WEB_UI_ALLOWED_ORIGINS` for a separately hosted frontend. Verify companion files against the artifact's lock with `python3 tools/web_artifact.py --verify /path/to/web-ui --lock /path/to/upstream.lock.json`. Developers with access to the private Rust implementation can check it out under `pro/` and build with `--features pro`.
+Build the standard host with Rust 1.88.0 and `cargo build --release --locked`. Use `--web-root` to select the companion `web-ui/` directory and set `FOLDERSPAN_WEB_UI_ALLOWED_ORIGINS` for a separately hosted frontend. Verify companion files against the lock generated during packaging with `python3 tools/web_artifact.py --verify /path/to/web-ui --lock /path/to/upstream.lock.json`. Developers with access to the private Rust implementation can check it out under `pro/` and build with `--features pro`.
 
 The standard host uses the [Apache-2.0 license](LICENSE). See [NOTICE](NOTICE) and the archive's `third-party-licenses/index.json` for attribution. Report host issues on [GitHub](https://github.com/Qqv0V6ge/FolderSpanHeadless/issues).
