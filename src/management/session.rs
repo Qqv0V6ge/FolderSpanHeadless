@@ -70,6 +70,12 @@ struct Inner {
     next_event: i64,
     latest: VecDeque<Event>,
 }
+impl Inner {
+    fn expired_at(&self, now: Instant) -> bool {
+        now.saturating_duration_since(self.last_access) >= IDLE_TIMEOUT
+            || now.saturating_duration_since(self.last_heartbeat) >= LEASE
+    }
+}
 pub struct Session {
     pub token: String,
     pub cache: PathBuf,
@@ -115,9 +121,7 @@ impl Session {
     }
     pub fn expired(&self) -> bool {
         let i = self.inner.lock().unwrap();
-        self.cancel.is_cancelled()
-            || i.last_access.elapsed() >= IDLE_TIMEOUT
-            || i.last_heartbeat.elapsed() >= LEASE
+        self.cancel.is_cancelled() || i.expired_at(Instant::now())
     }
     pub fn touch(&self) {
         self.inner.lock().unwrap().last_access = Instant::now();
@@ -434,12 +438,19 @@ mod tests {
         )
         .unwrap();
         let s = Session::new(root.path()).unwrap();
-        s.inner.lock().unwrap().last_heartbeat = Instant::now() - LEASE;
-        assert!(s.expired());
+        {
+            let mut inner = s.inner.lock().unwrap();
+            // Advance the observation time to stay within Windows' clock range.
+            let start = inner.last_access;
+            let tick = Duration::from_nanos(1);
+            assert!(!inner.expired_at(start + (LEASE - tick)));
+            assert!(inner.expired_at(start + LEASE));
+
+            inner.last_heartbeat = start + (IDLE_TIMEOUT - LEASE / 2);
+            assert!(!inner.expired_at(start + (IDLE_TIMEOUT - tick)));
+            assert!(inner.expired_at(start + IDLE_TIMEOUT));
+        }
         s.heartbeat();
-        assert!(!s.expired());
-        s.inner.lock().unwrap().last_access = Instant::now() - IDLE_TIMEOUT;
-        assert!(s.expired());
         s.touch();
         assert!(!s.expired());
         assert!(s.reply(999, vec![], false).is_err());
