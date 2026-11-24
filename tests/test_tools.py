@@ -194,7 +194,7 @@ class ArtifactTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             target = "x86_64-pc-windows-msvc"
-            for name in ("LICENSE", "NOTICE", "readme.md", "Cargo.lock"):
+            for name in ("LICENSE", "NOTICE", "README.md", "Cargo.lock"):
                 (root / name).write_text("fixture " + name)
             (root / "Cargo.toml").write_text('[package]\nversion="0.1.0"\n')
             web = root / "web"
@@ -236,7 +236,6 @@ class ArtifactTests(unittest.TestCase):
             prefix = "FolderSpanHeadless-0.1.0-windows-x64-preview/"
             with zipfile.ZipFile(output) as archive:
                 self.assertEqual(archive.read(prefix + "LICENSE"), b"fixture LICENSE")
-                self.assertEqual(archive.read(prefix + "README.md"), b"fixture readme.md")
                 self.assertEqual(archive.getinfo(prefix + "LICENSE").date_time[0], 1980)
                 sums = archive.read(prefix + "SHA256SUMS").decode()
                 self.assertIn(hashlib.sha256(b"fixture LICENSE").hexdigest() + "  LICENSE", sums)

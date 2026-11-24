@@ -69,9 +69,8 @@ def package(target, binary, web, destination, *, lock_path=None, edition="standa
         shutil.copy2(binary, stage / executable)
         if web is not None:
             shutil.copytree(web, stage / "web-ui")
-        for file in ("LICENSE", "NOTICE", "Cargo.lock"):
+        for file in ("LICENSE", "NOTICE", "README.md", "Cargo.lock"):
             shutil.copy2(ROOT / file, stage / file)
-        shutil.copy2(ROOT / "readme.md", stage / "README.md")
         shutil.copy2(lock_path, stage / "upstream.lock.json")
         licenses = ROOT / ".cache/third-party-licenses" / target
         verify_licenses(licenses, target, ROOT / "Cargo.lock")
